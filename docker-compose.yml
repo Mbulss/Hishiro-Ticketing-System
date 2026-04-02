@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  backend:
+    image: esojas/hishiro-ticketing-system-backend:latest
+    restart: always
+    environment:
+      # Hard code so no mistake
+      PORT: 3032
+      NODE_ENV: production
+      MONGO_URI: mongodb://e2425-wads-l4ccg2:chud6spe@10.25.143.17:27017/e2425-wads-l4ccg2?authSource=e2425-wads-l4ccg2
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
+      GEMINI_API_KEY: AIzaSyDv7xrV4vtbgY-xfAn8dusfbUJ5VOTMGNg
+      FRONTEND_URL: https://e2425-wads-l4ccg2-client.csbihub.id
+    ports:
+      - "3032:3032"
+
+  frontend:
+  # Dont forget to put correct image
+    image: esojas/hishiro-ticketing-system-frontend:latest
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3031:3031"

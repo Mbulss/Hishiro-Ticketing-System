@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  .container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  .content-container {
+    @apply w-full mt-0 pt-8;
+  }
+}
+
+.swiper-button-next,
+.swiper-button-prev {
+  color: #ffffff;
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+/* Add some basic styles for the chat widget */
+.chat-widget {
+  @apply fixed bottom-4 right-4 z-50;
+}
+
+/* Add styles for the main content */
+main {
+  @apply min-h-screen py-0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+/* Slider section should have proper spacing after hero */
+.slider-section {
+  @apply py-12;
+}
+
+/* Add padding to the top of the page to accommodate the fixed header */
+body {
+  scroll-padding-top: 5rem;
+}
+
+/* Custom breakpoints for category navbar */
+@media (max-width: 1119px) {
+  .show-above-1119 { display: none !important; }
+  .show-below-1120 { display: block !important; }
+}
+@media (min-width: 1120px) {
+  .show-above-1119 { display: block !important; }
+  .show-below-1120 { display: none !important; }
+}
+
+/* Full-screen hero section */
+.h-screen {
+  height: 100vh;
+  height: calc(var(--vh, 1vh) * 100);
+}
+
+/* Transition styles for header elements */
+.header-transition {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Custom text selection styles */
+::selection {
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+}
+
+/* For Firefox */
+::-moz-selection {
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+}
+
