@@ -8,10 +8,7 @@ import {
   XCircleIcon,
 } from '@heroicons/react/24/outline';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth } from '../../firebase';
-import { io } from 'socket.io-client';
 import { API_URL } from '../../config/api';
-
 export default function TicketDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -77,101 +74,24 @@ export default function TicketDetails() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Real-time updates with Socket.IO
+  // Polling for new messages
   useEffect(() => {
     if (!user) return;
-    const sock = io(API_URL, {
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      timeout: 20000,
-    });
-    socketRef.current = sock;
-    
-    sock.on('connect', () => {
-      console.log('Admin socket connected successfully');
-      sock.emit('joinTicketRoom', id);
-    });
-
-    sock.on('connect_error', (error) => {
-      console.error('Admin socket connection error:', error);
-    });
-
-    sock.on('disconnect', (reason) => {
-      console.log('Admin socket disconnected:', reason);
-    });
-
-    sock.on('ticketMessage', (data) => {
-      if (data.ticketId === id) {
-        setMessages(prev => {
-          // Fix deduplication: always check for tempId if present
-          const exists = prev.some(m => 
-            (m.tempId && data.tempId && m.tempId === data.tempId) || 
-            (!data.tempId && m.text === data.message && m.sender === data.sender && 
-             Math.abs(new Date(m.time).getTime() - new Date(data.time).getTime()) < 1000)
-          );
-          if (exists) return prev;
-          return [...prev, {
-            text: data.message,
-            sender: data.sender,
-            time: data.time,
-            tempId: data.tempId
-          }];
+    let interval;
+    const fetchMessagesPolling = async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`${API_URL}/api/tickets/${id}/messages`, {
+          headers: { Authorization: `Bearer ${token}` }
         });
-      }
-    });
-
-    // Handle status updates
-    sock.on('ticketStatusUpdated', (data) => {
-      if (data.ticketId === id) {
-        setTicket(prev => ({ ...prev, status: data.status }));
-        setStatus(data.status);
-        
-        // Add system message only if not already present
-        setMessages(prev => {
-          const recentSystemMsg = prev.slice(-3).find(m => 
-            m.sender === 'system' && 
-            m.text && m.text.includes('status updated to') &&
-            Math.abs(new Date(m.time).getTime() - new Date(data.time).getTime()) < 5000
-          );
-          
-          if (recentSystemMsg) return prev; // Don't add duplicate
-          
-          return [...prev, {
-            text: `Ticket status updated to: ${data.status}`,
-            sender: 'system',
-            time: data.time
-          }];
-        });
-      }
-    });
-
-    // Handle priority updates
-    sock.on('ticketPriorityUpdated', (data) => {
-      if (data.ticketId === id) {
-        setTicket(prev => ({ ...prev, priority: data.priority }));
-        
-        // Add system message only if not already present
-        setMessages(prev => {
-          const recentSystemMsg = prev.slice(-3).find(m => 
-            m.sender === 'system' && 
-            m.text && m.text.includes('priority updated to') &&
-            Math.abs(new Date(m.time).getTime() - new Date(data.time).getTime()) < 5000
-          );
-          
-          if (recentSystemMsg) return prev; // Don't add duplicate
-          
-          return [...prev, {
-            text: `Ticket priority updated to: ${data.priority}`,
-            sender: 'system',
-            time: data.time
-          }];
-        });
-      }
-    });
-
-    return () => {
-      sock.disconnect();
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(data);
+        }
+      } catch (err) {}
     };
+    interval = setInterval(fetchMessagesPolling, 5000);
+    return () => clearInterval(interval);
   }, [id, user]);
 
   const handleSend = async (e) => {

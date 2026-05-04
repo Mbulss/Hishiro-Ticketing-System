@@ -20,8 +20,7 @@ import { createPortal } from 'react-dom'
 import NotificationBell from '../../components/NotificationBell'
 import { useNotifications } from '../../contexts/NotificationContext'
 import logo from '../../assets/logo.png';
-import { io } from 'socket.io-client'
-import { getSocketUrl, API_URL } from '../../config/api'
+import { API_URL } from '../../config/api'
 
 export function Header({ onMenuClick }) {
   const [user] = useAuthState(auth)
@@ -48,82 +47,9 @@ export function Header({ onMenuClick }) {
     fetchProfile()
   }, [user])
 
-  // Real-time admin notifications
-  useEffect(() => {
-    if (!user) return;
+  // Polling for notifications instead of socket (Optional, currently notifications are fetched locally or just not updated real-time)
+  // For Vercel free tier we will skip real-time notifications for admin since they can just refresh tickets list
 
-    const socketUrl = getSocketUrl();
-    const socket = io(socketUrl, {
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      timeout: 20000,
-    });
-
-    socket.on('connect', () => {
-      console.log('Admin socket connected');
-      // Join admin notification room
-      socket.emit('adminJoinNotificationRoom', user.uid);
-    });
-
-    // Listen for new tickets created by users
-    socket.on('newTicketCreated', (data) => {
-      addNotification({
-        title: '🎫 New Ticket Created',
-        message: `${data.userName} created a new ${data.priority} priority ticket: "${data.ticketSubject}"`,
-        type: 'ticket',
-        ticketId: data.ticketId,
-        ticketSubject: data.ticketSubject,
-        priority: data.priority
-      });
-
-      // Browser notification for admins
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification('🎫 New Support Ticket', {
-          body: `${data.userName} needs help: "${data.ticketSubject}"`,
-          icon: '/favicon.ico',
-          tag: `new-ticket-${data.ticketId}`,
-          requireInteraction: true
-        });
-
-        notification.onclick = () => {
-          window.focus();
-          navigate(`/admin/tickets/${data.ticketId}`);
-          notification.close();
-        };
-      }
-    });
-
-    // Listen for urgent tickets
-    socket.on('urgentTicketAlert', (data) => {
-      addNotification({
-        title: '🚨 Urgent Ticket Alert',
-        message: `High priority ticket from ${data.userName}: "${data.ticketSubject}"`,
-        type: 'alert',
-        ticketId: data.ticketId,
-        ticketSubject: data.ticketSubject
-      });
-
-      // Browser notification for urgent tickets
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification('🚨 URGENT: High Priority Ticket', {
-          body: `${data.userName}: "${data.ticketSubject}"`,
-          icon: '/favicon.ico',
-          tag: `urgent-ticket-${data.ticketId}`,
-          requireInteraction: true
-        });
-
-        notification.onclick = () => {
-          window.focus();
-          navigate(`/admin/tickets/${data.ticketId}`);
-          notification.close();
-        };
-      }
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [user, addNotification, navigate]);
 
   // Request notification permission for admins
   useEffect(() => {

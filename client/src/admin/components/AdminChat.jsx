@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../../firebase';
@@ -8,7 +7,6 @@ import { API_URL } from '../../config/api';
 export default function AdminChat() {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
-  const [socket, setSocket] = useState(null);
   const [activeTickets, setActiveTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const messagesEndRef = useRef(null);
@@ -16,119 +14,68 @@ export default function AdminChat() {
   const [user] = useAuthState(auth);
 
   useEffect(() => {
-    const newSocket = io(API_URL);
-    setSocket(newSocket);
-
-    // Listen for new tickets
-    newSocket.on('newTicket', (ticket) => {
-      setActiveTickets(prev => {
-        if (!prev.find(t => t._id === ticket._id)) {
-          // Add notification for new ticket
-          addNotification({
-            title: 'New Ticket Created',
-            message: `Ticket #${ticket._id.substring(0, 8)}...`,
-            icon: (
-              <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-            )
-          });
-          return [...prev, ticket];
-        }
-        return prev;
-      });
-    });
-
-    // Listen for ticket messages
-    newSocket.on('ticketMessage', (data) => {
-      console.log('Admin received ticket message:', data);
-      if (selectedTicket && data.ticketId === selectedTicket._id && data.sender !== 'admin') {
-        setMessages(prev => [...prev, {
-          _id: Math.random().toString(),
-          from: data.sender,
-          text: data.message,
-          time: data.time
-        }]);
-        
-        // Add notification for new message
-        addNotification({
-          title: 'New Message',
-          message: `From user in Ticket #${data.ticketId.substring(0, 8)}...`,
-          icon: (
-            <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-            </svg>
-          )
+    if (!user) return;
+    
+    // Polling for active tickets
+    const fetchActiveTickets = async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`${API_URL}/api/tickets`, {
+          headers: { Authorization: `Bearer ${token}` }
         });
+        if (res.ok) {
+          const data = await res.json();
+          // Filter to only show active tickets (open, in-progress)
+          const active = data.filter(t => t.status !== 'resolved' && t.status !== 'closed');
+          setActiveTickets(active);
+        }
+      } catch (err) {
+        console.error("Error fetching tickets:", err);
       }
-    });
-
-    // Listen for status updates
-    newSocket.on('ticketStatusUpdated', (data) => {
-      if (selectedTicket && data.ticketId === selectedTicket._id) {
-        setSelectedTicket(prev => ({ ...prev, status: data.status }));
-        setMessages(prev => [...prev, {
-          _id: Math.random().toString(),
-          from: 'system',
-          text: `Ticket status updated to: ${data.status}`,
-          time: data.time
-        }]);
-      }
-      // Update status in active tickets list
-      setActiveTickets(prev => prev.map(ticket => 
-        ticket._id === data.ticketId 
-          ? { ...ticket, status: data.status }
-          : ticket
-      ));
-    });
-
-    // Listen for admin joined notification
-    newSocket.on('adminJoined', (data) => {
-      if (selectedTicket && data.ticketId === selectedTicket._id) {
-        setMessages(prev => [...prev, {
-          _id: Math.random().toString(),
-          from: 'system',
-          text: 'You joined the conversation',
-          time: data.time
-        }]);
-      }
-    });
-
-    // Listen for user left notification
-    newSocket.on('userLeft', (data) => {
-      if (selectedTicket && data.ticketId === selectedTicket._id) {
-        setMessages(prev => [...prev, {
-          _id: Math.random().toString(),
-          from: 'system',
-          text: 'User left the conversation',
-          time: data.time
-        }]);
-      }
-    });
-
-    // Cleanup on unmount
-    return () => {
-      newSocket.disconnect();
     };
-  }, [selectedTicket, addNotification]);
+    
+    fetchActiveTickets();
+    const interval = setInterval(fetchActiveTickets, 10000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Join ticket room when selected
   useEffect(() => {
-    if (selectedTicket && socket) {
-      console.log('Admin joining room', selectedTicket._id);
-      socket.emit('joinTicketRoom', selectedTicket._id);
+    if (selectedTicket) {
       setMessages([]); // Clear messages when switching tickets
     }
-  }, [selectedTicket, socket]);
+  }, [selectedTicket]);
+
+  // Polling for messages in selected ticket
+  useEffect(() => {
+    if (!selectedTicket || !user) return;
+    
+    const fetchMessages = async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`${API_URL}/api/tickets/${selectedTicket._id}/messages`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(data);
+        }
+      } catch (err) {}
+    };
+    
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 5000);
+    return () => clearInterval(interval);
+  }, [selectedTicket, user]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (message.trim() && socket && selectedTicket) {
+    if (message.trim() && selectedTicket && user) {
       // Check if ticket is resolved
       if (selectedTicket.status === 'resolved') {
         addNotification({
@@ -143,23 +90,26 @@ export default function AdminChat() {
         return;
       }
 
-      // Send message to ticket room
-      socket.emit('ticketMessage', {
-        ticketId: selectedTicket._id,
-        message: message,
-        isAdmin: true,
-        sender: 'admin'
-      });
-      
-      // Add message to local state immediately
-      setMessages(prev => [...prev, {
-        _id: Math.random().toString(),
-        from: 'admin',
-        text: message,
-        time: new Date().toLocaleTimeString()
-      }]);
-      
-      setMessage('');
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`${API_URL}/api/tickets/${selectedTicket._id}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ text: message })
+        });
+        
+        if (res.ok) {
+          setMessage('');
+          // Refresh messages will happen on next poll or we can just fetch immediately
+          const data = await res.json();
+          if (data.messages) setMessages(data.messages);
+        }
+      } catch (err) {
+        console.error("Failed to send message", err);
+      }
     }
   };
 
@@ -168,7 +118,7 @@ export default function AdminChat() {
   };
 
   const handleStatusUpdate = async (status) => {
-    if (socket && selectedTicket) {
+    if (selectedTicket && user) {
       try {
         const token = await user.getIdToken();
         const res = await fetch(`${API_URL}/api/tickets/${selectedTicket._id}`, {
@@ -181,14 +131,14 @@ export default function AdminChat() {
         });
 
         if (res.ok) {
-          // Emit socket event for real-time update
-          socket.emit('updateTicketStatus', {
-            ticketId: selectedTicket._id,
-            status
-          });
-          
           // Update local state
           setSelectedTicket(prev => ({ ...prev, status }));
+          // Update status in active tickets list
+          setActiveTickets(prev => prev.map(ticket => 
+            ticket._id === selectedTicket._id 
+              ? { ...ticket, status }
+              : ticket
+          ));
         } else {
           console.error('Failed to update ticket status');
         }

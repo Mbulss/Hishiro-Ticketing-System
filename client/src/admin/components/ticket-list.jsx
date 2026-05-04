@@ -5,7 +5,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Eye, MessageSquare, Clock } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { io } from 'socket.io-client'
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '../../firebase';
 import { API_URL, getSocketUrl } from '../../config/api';
@@ -67,11 +66,6 @@ export function TicketList({ status, priority, assignee, search, limit }) {
       return;
     }
 
-    // Connect to socket
-    const socketUrl = getSocketUrl();
-    const newSocket = io(socketUrl);
-    setSocket(newSocket);
-
     // Fetch initial tickets
     const fetchTickets = async () => {
       try {
@@ -83,7 +77,6 @@ export function TicketList({ status, priority, assignee, search, limit }) {
         });
         if (!res.ok) {
           if (res.status === 401) {
-             // If unauthorized, redirect to login
              navigate('/login');
              return;
           }
@@ -93,35 +86,15 @@ export function TicketList({ status, priority, assignee, search, limit }) {
         setTickets(filterTickets(data));
       } catch (err) {
         console.error('Error fetching tickets:', err);
-        // Handle other potential errors, maybe show a message to the user
       }
     };
 
     fetchTickets();
-
-    // Listen for new tickets
-    newSocket.on('newTicket', (ticket) => {
-      setTickets(prev => {
-        if (!prev.find(t => t._id === ticket._id)) {
-          const updated = [ticket, ...prev];
-          return filterTickets(updated);
-        }
-        return filterTickets(prev);
-      });
-    });
-
-    // Listen for ticket updates
-    newSocket.on('ticketUpdated', (updatedTicket) => {
-      setTickets(prev => {
-        const updated = prev.map(ticket => 
-          ticket._id === updatedTicket._id ? updatedTicket : ticket
-        );
-        return filterTickets(updated);
-      });
-    });
+    // Poll every 10 seconds
+    const interval = setInterval(fetchTickets, 10000);
 
     return () => {
-      newSocket.disconnect();
+      clearInterval(interval);
     };
   // re-run when filters change
   }, [user, loading, navigate, status, priority, search]);
