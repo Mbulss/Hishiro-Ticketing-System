@@ -40,7 +40,6 @@ import {
 } from '../components/ui/dropdown-menu';
 import { Select } from "../components/ui/select";
 import { toast } from 'react-hot-toast';
-import { io } from "socket.io-client";
 import { API_URL, getSocketUrl } from '../config/api';
 
 export default function Dashboard() {
@@ -191,101 +190,37 @@ export default function Dashboard() {
     }
   }, [user, loading, navigate, darkMode]);
 
-  // Real-time notifications for ticket updates
+  // Polling for ticket updates (simulating real-time)
   useEffect(() => {
     if (!user) return;
 
-    const socketUrl = getSocketUrl();
-    const socket = io(socketUrl, {
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      timeout: 20000,
-    });
-
-    socket.on('connect', () => {
-      console.log('Dashboard socket connected');
-      // Join user-specific room for notifications
-      socket.emit('userJoinNotificationRoom', user.uid);
-    });
-
-    // Listen for admin replies to user's tickets
-    socket.on('adminReplyToUserTicket', (data) => {
-      addNotification({
-        title: '💬 New Reply from Support',
-        message: `Admin replied to ticket "${data.ticketSubject}": "${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}"`,
-        type: 'message',
-        ticketId: data.ticketId,
-        ticketSubject: data.ticketSubject
-      });
-
-      // Browser notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification('💬 New Reply from Support', {
-          body: `Admin replied to: "${data.ticketSubject}"`,
-          icon: '/favicon.ico',
-          tag: `ticket-reply-${data.ticketId}`,
-          requireInteraction: false
+    let interval;
+    const fetchLatestTickets = async () => {
+      try {
+        const token = await user.getIdToken();
+        const ticketsRes = await fetch(`${API_URL}/api/tickets/user`, {
+          headers: { 'Authorization': `Bearer ${token}` }
         });
-
-        setTimeout(() => notification.close(), 5000);
-
-        notification.onclick = () => {
-          window.focus();
-          navigate(`/ticket/${data.ticketId}`);
-          notification.close();
-        };
+        
+        if (ticketsRes.ok) {
+          const ticketsData = await ticketsRes.json();
+          // We can update the tickets list here automatically
+          if (activeTab === 'tickets' || activeTab === 'overview' || activeTab === 'open-tickets' || activeTab === 'in-progress') {
+            setTickets(Array.isArray(ticketsData) ? ticketsData : []);
+          }
+        }
+      } catch (error) {
+        // silent fail for polling
       }
-    });
+    };
 
-    // Listen for ticket status updates
-    socket.on('userTicketStatusUpdated', (data) => {
-      const statusEmojis = {
-        'new': '🆕',
-        'in-progress': '⏳',
-        'resolved': '✅',
-        'closed': '🔒'
-      };
-
-      addNotification({
-        title: `${statusEmojis[data.status] || '📋'} Ticket Status Updated`,
-        message: `Ticket "${data.ticketSubject}" status changed to: ${data.status}`,
-        type: 'status',
-        ticketId: data.ticketId,
-        ticketSubject: data.ticketSubject
-      });
-
-      // Refresh tickets if on tickets tab
-      if (activeTab === 'tickets') {
-        fetchTickets();
-      }
-    });
-
-    // Listen for ticket priority updates
-    socket.on('userTicketPriorityUpdated', (data) => {
-      const priorityEmojis = {
-        'low': '🟢',
-        'medium': '🟡',
-        'high': '🔴'
-      };
-
-      addNotification({
-        title: `${priorityEmojis[data.priority] || '⚡'} Priority Updated`,
-        message: `Ticket "${data.ticketSubject}" priority changed to: ${data.priority}`,
-        type: 'priority',
-        ticketId: data.ticketId,
-        ticketSubject: data.ticketSubject
-      });
-
-      // Refresh tickets if on tickets tab
-      if (activeTab === 'tickets') {
-        fetchTickets();
-      }
-    });
+    // Poll every 15 seconds
+    interval = setInterval(fetchLatestTickets, 15000);
 
     return () => {
-      socket.disconnect();
+      if (interval) clearInterval(interval);
     };
-  }, [user, addNotification, navigate, activeTab]);
+  }, [user, activeTab]);
 
   // Request notification permission
   useEffect(() => {

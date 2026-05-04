@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
 import { supabase } from './config/supabase.js';
 import { errorHandler } from './middleware/errorMiddleware.js';
 import ticketRoutes from './routes/ticketRoutes.js';
@@ -27,14 +26,6 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const app = express();
 const server = createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: process.env.NODE_ENV === 'production' 
-      ? ['https://e2425-wads-l4ccg2-client.csbihub.id', process.env.FRONTEND_URL] 
-      : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3031'],
-    methods: ["GET", "POST"]
-  }
-});
 
 // CORS configuration
 app.use(cors({
@@ -94,173 +85,13 @@ app.get('/health', (req, res) => {
 
 app.use(errorHandler);
 
-const activeTicketRooms = new Map();
-const userNotificationRooms = new Map();
+// Untuk Vercel Serverless, kita harus meng-export app
+export default app;
 
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-
-  socket.on('clientMessage', (message) => {
-    io.emit('adminMessage', {
-      from: socket.id,
-      text: message,
-      time: new Date().toLocaleTimeString()
-    });
+// Jalankan server lokal jika tidak di environment Vercel
+if (process.env.NODE_ENV !== 'production' || process.env.RENDER) {
+  const PORT = process.env.PORT || 3032;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
   });
-
-  socket.on('userJoinNotificationRoom', (userId) => {
-    userNotificationRooms.set(userId, socket.id);
-    socket.join(`user_notifications_${userId}`);
-  });
-
-  socket.on('adminJoinNotificationRoom', (adminId) => {
-    socket.join('admin_notifications');
-  });
-
-  socket.on('createTicket', async (ticketData) => {
-    try {
-      const { data: ticket, error } = await supabase
-        .from('tickets')
-        .insert([{
-          user_id: socket.id, // Using socket.id as temporary user_id if not auth
-          message: ticketData.message,
-          bot_response: ticketData.botResponse,
-          status: 'open',
-          priority: 'medium'
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      const ticketRoom = `ticket_${ticket.id}`;
-      activeTicketRooms.set(ticket.id.toString(), {
-        ticketId: ticket.id,
-        userId: socket.id,
-        adminId: null
-      });
-
-      socket.join(ticketRoom);
-      
-      socket.emit('ticketCreated', {
-        id: ticket.id,
-        _id: ticket.id,
-        status: ticket.status,
-        message: ticket.message,
-        botResponse: ticket.bot_response
-      });
-      
-      io.emit('newTicket', {
-        ...ticket,
-        _id: ticket.id,
-        roomId: ticketRoom,
-        createdAt: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error creating ticket:', error);
-      socket.emit('ticketError', { message: 'Failed to create ticket' });
-    }
-  });
-
-  socket.on('joinTicketRoom', (ticketId) => {
-    const ticketRoom = `ticket_${ticketId}`;
-    socket.join(ticketRoom);
-    
-    let ticketInfo = activeTicketRooms.get(ticketId);
-    if (ticketInfo) {
-      ticketInfo.adminId = socket.id;
-    } else {
-      activeTicketRooms.set(ticketId, { ticketId, userId: null, adminId: socket.id });
-    }
-    
-    io.to(ticketRoom).emit('adminJoined', {
-      ticketId,
-      adminId: socket.id,
-      time: new Date().toLocaleString()
-    });
-  });
-
-  socket.on('ticketMessage', async (data) => {
-    const { ticketId, message, isAdmin, sender, tempId } = data;
-    const ticketRoom = `ticket_${ticketId}`;
-    
-    try {
-      // Save message to Supabase
-      const { data: newMessage, error } = await supabase
-        .from('messages')
-        .insert([{
-          ticket_id: ticketId,
-          text: message,
-          sender: sender || (isAdmin ? 'admin' : 'user'),
-          time: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      io.to(ticketRoom).emit('ticketMessage', {
-        ticketId,
-        message,
-        sender: newMessage.sender,
-        time: new Date(newMessage.time).toLocaleString(),
-        tempId: tempId || null
-      });
-
-      // Notify user if admin replied
-      if (isAdmin) {
-        const { data: ticket } = await supabase.from('tickets').select('user_id, subject').eq('id', ticketId).single();
-        if (ticket && ticket.user_id) {
-          io.to(`user_notifications_${ticket.user_id}`).emit('adminReplyToUserTicket', {
-            ticketId,
-            ticketSubject: ticket.subject || 'Your Ticket',
-            message,
-            time: new Date().toLocaleString()
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error processing ticket message:', error);
-    }
-  });
-
-  socket.on('updateTicketStatus', async (data) => {
-    const { ticketId, status } = data;
-    try {
-      const { data: ticket, error } = await supabase
-        .from('tickets')
-        .update({ status })
-        .eq('id', ticketId)
-        .select()
-        .single();
-
-      if (ticket) {
-        io.to(`ticket_${ticketId}`).emit('ticketStatusUpdated', { ticketId, status, time: new Date().toLocaleTimeString() });
-        if (ticket.user_id) {
-          io.to(`user_notifications_${ticket.user_id}`).emit('userTicketStatusUpdated', {
-            ticketId,
-            ticketSubject: ticket.subject || 'Your Ticket',
-            status,
-            time: new Date().toLocaleString()
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error updating ticket status:', error);
-    }
-  });
-
-  socket.on('disconnect', () => {
-    // Cleanup logic (simplified)
-    for (const [userId, socketId] of userNotificationRooms.entries()) {
-      if (socketId === socket.id) userNotificationRooms.delete(userId);
-    }
-  });
-});
-
-app.set('io', io);
-
-const PORT = process.env.PORT || 3032;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+}

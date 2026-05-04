@@ -1,11 +1,6 @@
 // src/components/ChatWidget.jsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-  ArrowTopRightOnSquareIcon,
-  ChevronDownIcon,
-  PhotoIcon,
-} from "@heroicons/react/24/solid";
-import { io } from "socket.io-client";
+import { ArrowTopRightOnSquareIcon, ChevronDownIcon, PhotoIcon } from "@heroicons/react/24/solid";
 import { useNotifications } from '../contexts/NotificationContext';
 import customerSupportIcon from "../assets/customer-support.png";
 import { generateBotResponse } from "../services/geminiService";
@@ -31,156 +26,47 @@ export default function ChatWidget({ fullPage = false, hideHeader = false, ticke
   const { addNotification } = useNotifications();
   const [user, loading] = useAuthState(auth);
 
-  // Socket connection
+  // Polling for messages instead of socket
   useEffect(() => {
-    // Only connect to socket if not in full page mode (where socket might be handled differently)
-    // Or if in full page mode and we have a ticketId (meaning an existing chat)
-    if (!fullPage || (fullPage && ticketId)) {
-      const socketUrl = getSocketUrl();
-      const sock = io(socketUrl, {
-        reconnectionAttempts: 3,
-        reconnectionDelay: 1000,
-      });
-
-      sock.on("connect_error", (error) => {
-        console.error("Socket connection error:", error);
-        setSocketError(true);
-      });
-
-      sock.on("connect", () => {
-        console.log("Socket connected successfully");
-        setSocketError(false);
-      });
-
-      // Handle ticket creation confirmation from backend (if still using a backend confirmation)
-      // This might be removed if ticket creation is purely via API now
-      sock.on("ticketCreated", (ticket) => {
-        setCurrentTicket(ticket);
-        // Provide a link to communicate with admin after the ticket is created
-        setMessages(prev => [...prev, {
-          from: 'system',
-          type: 'text',
-          text: `A support ticket has been created for your issue. Please click here to continue the conversation with our support team.`,
-          time: new Date().toLocaleTimeString(),
-          isLink: true,
-          linkUrl: `/chat/${ticket._id}`
-        }]);
-      });
-
-      // Handle ticket messages
-      sock.on("ticketMessage", (data) => {
-        // Only add messages if we are in the full page ticket chat and the ticketId matches,
-        // AND the message was not sent by the current user.
-        if (fullPage && (ticketId === data.ticketId) && data.sender !== 'user') {
-          setMessages(prev => [...prev, {
-            from: data.sender === 'admin' ? 'support' : data.sender,
-            type: 'text',
-            text: data.message,
-            time: data.time
-          }]);
-
-          // Add notification for admin message
-          if (data.sender === 'admin') {
-            addNotification({
-              title: 'New Message from Admin',
-              message: `Ticket #${data.ticketId.substring(0, 8)}...`,
-              icon: (
-                <svg className="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                </svg>
-              )
-            });
+    let interval;
+    if (fullPage && ticketId && user) {
+      const fetchMessages = async () => {
+        try {
+          const token = await user.getIdToken();
+          const res = await fetch(`${API_URL}/api/tickets/${ticketId}/messages`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            // Map the messages format to our frontend format
+            const formattedMessages = data.map(m => ({
+              from: m.sender === 'admin' ? 'support' : m.sender,
+              type: 'text',
+              text: m.text,
+              time: new Date(m.time).toLocaleTimeString()
+            }));
+            
+            // Set the new messages (ignoring duplicates or replacing all)
+            // For simplicity, we just replace all messages after the initial greeting
+            setMessages([
+              { from: "support", type: "text", text: "Please wait until our admin joins this conversation." },
+              ...formattedMessages
+            ]);
           }
+        } catch (error) {
+          console.error("Error fetching messages:", error);
         }
-      });
-
-      // Handle admin joining
-      sock.on("adminJoined", (data) => {
-        console.log("adminJoined event received in ChatWidget", data);
-        setIsAdminPresent(true);
-        // Only show admin joined message on the full page
-        if (fullPage) {
-          setMessages(prev => [...prev, {
-            from: 'system',
-            type: 'text',
-            text: 'An admin has joined the conversation.',
-            time: data.time
-          }]);
-        }
-      });
-
-      // Handle user leaving
-      sock.on("userLeft", (data) => {
-        // Only show user left message on the full page
-        if (fullPage) {
-          setMessages(prev => [...prev, {
-            from: 'system',
-            type: 'text',
-            text: 'A user has left the conversation.',
-            time: data.time
-          }]);
-        }
-      });
-
-      // Handle ticket status updates
-      sock.on("ticketStatusUpdated", (data) => {
-        // Only show status updates on the full page
-        if (fullPage) {
-          setMessages(prev => [...prev, {
-            from: 'system',
-            type: 'text',
-            text: `Ticket status updated to: ${data.status}`,
-            time: data.time
-          }]);
-        }
-      });
-
-      // Listen for admin left notification
-      sock.on('adminLeft', (data) => {
-        setIsAdminPresent(false);
-        // Only show admin left message on the full page
-        if (fullPage) {
-          setMessages(prev => [...prev, {
-            from: 'system',
-            type: 'text',
-            text: 'The admin has left converstation.',
-            time: data.time
-          }]);
-        }
-      });
-
-      socketRef.current = sock;
-
-      return () => { 
-        sock.disconnect();
       };
-    } else if (socketRef.current) {
-       // If conditions change and socket should no longer be connected, disconnect it
-       socketRef.current.disconnect();
-       socketRef.current = null;
-    }
-  }, [fullPage, ticketId]); // Added fullPage and ticketId to dependencies
-
-  // Join ticket room if ticket exists or if ticketId prop is provided
-  useEffect(() => {
-    if ((currentTicket || ticketId) && socketRef.current) {
-      const ticketToJoin = ticketId || currentTicket._id;
       
-      // If on the full page and have a ticketId, the user should join the room
-      if (fullPage && ticketId) {
-        console.log('Emitting userJoinTicketRoom for ticket:', ticketId);
-        socketRef.current.emit('userJoinTicketRoom', ticketId);
-      } else if (currentTicket && socketRef.current) {
-           // Existing logic for admin/system joining, if applicable
-          socketRef.current.emit('joinTicketRoom', ticketToJoin); // Keep existing for admin/system
-      }
-      
-      // If we have a ticketId prop, set it as the current ticket for display purposes
-      if (ticketId && !currentTicket) {
-        setCurrentTicket({ _id: ticketId });
-      }
+      // Fetch immediately and then every 3 seconds
+      fetchMessages();
+      interval = setInterval(fetchMessages, 3000);
     }
-  }, [currentTicket, ticketId, fullPage]); // Added fullPage to dependencies
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [fullPage, ticketId, user]); 
 
   // Auto-scroll
   useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages]);
@@ -197,14 +83,21 @@ export default function ChatWidget({ fullPage = false, hideHeader = false, ticke
     setMessages((prev) => [...prev, { from: "user", type: "text", text: txt }]);
     
     // Only allow chat messages in full chat page for existing tickets
-    if (fullPage && (currentTicket || ticketId)) {
-      console.log('Attempting to emit ticketMessage from full page:', { ticketId: ticketId || currentTicket?._id, message: txt });
-      socketRef.current.emit("ticketMessage", {
-        ticketId: ticketId || currentTicket._id,
-        message: txt,
-        isAdmin: false,
-        sender: 'user'
-      });
+    if (fullPage && (currentTicket || ticketId) && user) {
+      try {
+        const token = await user.getIdToken();
+        const tid = ticketId || currentTicket._id;
+        await fetch(`${API_URL}/api/tickets/${tid}/user-message`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ text: txt })
+        });
+      } catch (error) {
+        console.error("Failed to send message via API", error);
+      }
     } else if (!fullPage) {
       // Only process with bot if not in full page mode (ticket view)
       setIsTyping(true);
@@ -281,11 +174,8 @@ export default function ChatWidget({ fullPage = false, hideHeader = false, ticke
             time: new Date().toLocaleTimeString(),
           }]);
 
-          // Join the ticket room via socket after successful creation
-          if (socketRef.current) {
-            socketRef.current.emit('userJoinTicketRoom', newTicket._id);
-            console.log('Emitting userJoinTicketRoom after creation for ticket:', newTicket._id);
-          }
+          // Message that ticket was created
+          console.log('Ticket created successfully:', newTicket._id);
         }
 
         setIsTyping(false);
@@ -421,12 +311,12 @@ export default function ChatWidget({ fullPage = false, hideHeader = false, ticke
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={isTyping || (fullPage && !isAdminPresent && !ticketId)} // Disable input if typing or admin not present in full page chat without ticketId
+                disabled={isTyping} // Disable input if typing
               />
               <button
                 className="ml-2 bg-black text-white px-4 py-2 rounded-lg font-medium hover:bg-white hover:text-black hover:border hover:border-black transition-all duration-200 disabled:opacity-50 disabled:hover:bg-black disabled:hover:text-white"
                 onClick={() => sendMessage(textInput)}
-                disabled={isTyping || !textInput.trim() || (fullPage && !isAdminPresent && !ticketId)}
+                disabled={isTyping || !textInput.trim()}
               >
                 Send
               </button>
