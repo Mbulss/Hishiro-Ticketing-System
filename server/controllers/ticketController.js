@@ -82,29 +82,14 @@ const createTicket = async (req, res) => {
 
     if (error) throw error;
 
-    // Emit notification to all admins about new ticket
-    const io = req.app.get('io');
-    if (io) {
-      io.to('admin_notifications').emit('newTicketCreated', {
-        ticketId: ticket.id,
-        ticketSubject: ticket.subject || 'New Support Request',
-        userEmail: req.user.email || 'Unknown User',
-        userName: req.user.username || req.user.email?.split('@')[0] || 'User',
-        message: ticket.message,
-        priority: ticket.priority || 'medium',
-        time: new Date().toLocaleString()
-      });
-
-      if (ticket.priority === 'high') {
-        io.to('admin_notifications').emit('urgentTicketAlert', {
-          ticketId: ticket.id,
-          ticketSubject: ticket.subject || 'Urgent Support Request',
-          userName: req.user.username || req.user.email?.split('@')[0] || 'User',
-          message: ticket.message,
-          time: new Date().toLocaleString()
-        });
-      }
-    }
+    // Insert notification to all admins about new ticket
+    await supabase.from('notifications').insert([{
+      user_id: 'admin',
+      title: ticket.priority === 'high' ? 'Urgent Ticket Alert' : 'New Ticket Created',
+      message: `Ticket #${ticket.id.substring(0,8)}: ${ticket.subject || 'Support Request'}`,
+      type: ticket.priority === 'high' ? 'alert' : 'ticket',
+      ticket_id: ticket.id
+    }]);
 
     res.status(201).json({ 
       ...ticket, 
@@ -220,31 +205,25 @@ const addTicketMessage = async (req, res) => {
 
     if (error) throw error;
 
-    // Socket notifications
-    const io = req.app.get('io');
-    if (io) {
-      const { data: ticket } = await supabase.from('tickets').select('*').eq('id', ticketId).single();
-      const ticketRoom = `ticket_${ticketId}`;
-      const userNotificationRoom = `user_notifications_${ticket.user_id}`;
-
-      io.to(ticketRoom).emit('ticketMessage', {
-        ticketId,
-        message: text,
-        sender: 'admin',
-        time: message.time,
-        tempId
-      });
-
-      io.to(userNotificationRoom).emit('adminReplyToUserTicket', {
-        ticketId,
-        ticketSubject: ticket.subject || 'Your Ticket',
-        message: text,
-        time: new Date().toLocaleString()
-      });
+    // Insert notification for the user
+    const { data: ticket } = await supabase.from('tickets').select('*').eq('id', ticketId).single();
+    if (ticket) {
+      await supabase.from('notifications').insert([{
+        user_id: ticket.user_id,
+        title: 'New Admin Reply',
+        message: `Admin replied to your ticket #${ticketId.substring(0,8)}`,
+        type: 'message',
+        ticket_id: ticketId
+      }]);
 
       if (status) {
-        io.to(ticketRoom).emit('ticketStatusUpdated', { ticketId, status, time: new Date().toLocaleString() });
-        io.to(userNotificationRoom).emit('userTicketStatusUpdated', { ticketId, ticketSubject: ticket.subject, status, time: new Date().toLocaleString() });
+        await supabase.from('notifications').insert([{
+          user_id: ticket.user_id,
+          title: 'Ticket Status Updated',
+          message: `Your ticket status was changed to ${status}`,
+          type: 'status',
+          ticket_id: ticketId
+        }]);
       }
     }
 
@@ -307,16 +286,14 @@ const addUserTicketMessage = async (req, res) => {
 
     if (error) throw error;
 
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`ticket_${ticketId}`).emit('ticketMessage', {
-        ticketId,
-        message: text,
-        sender: 'user',
-        time: message.time,
-        tempId
-      });
-    }
+    // Insert notification for admins
+    await supabase.from('notifications').insert([{
+      user_id: 'admin',
+      title: 'New User Reply',
+      message: `User replied to ticket #${ticketId.substring(0,8)}`,
+      type: 'message',
+      ticket_id: ticketId
+    }]);
 
     res.json({ message: { ...message, _id: message.id } });
   } catch (error) {

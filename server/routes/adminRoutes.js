@@ -90,6 +90,7 @@ router.get('/users', protect, async (req, res) => {
     const compatUsers = users.map(u => ({ 
       ...u, 
       _id: u.uid,
+      isAdmin: u.is_admin,
       createdAt: u.created_at,
       updatedAt: u.updated_at
     }));

@@ -10,6 +10,7 @@ import chatRoutes from './routes/chatRoutes.js';
 import swaggerUi from 'swagger-ui-express';
 import { specs } from './config/swagger.js';
 import adminRoutes from './routes/adminRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 import './config/firebase-admin.js'; 
 
 // Load environment variables
@@ -31,7 +32,7 @@ const server = createServer(app);
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://e2425-wads-l4ccg2-client.csbihub.id', process.env.FRONTEND_URL] 
-    : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3031'],
+    : ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://localhost:3031'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -48,6 +49,7 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working' });

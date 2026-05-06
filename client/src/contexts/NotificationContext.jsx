@@ -61,39 +61,40 @@ export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Load notifications from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('notifications');
-    if (saved) {
-      try {
-        const parsedNotifications = JSON.parse(saved);
-        setNotifications(parsedNotifications.map(n => ({
-          ...n,
-          timestamp: new Date(n.timestamp),
-          // Remove any serialized icon objects and let the component generate them
-          icon: undefined
-        })));
-      } catch (error) {
-        console.error('Failed to load notifications from localStorage:', error);
-        generateSampleNotifications();
+  // We need to fetch the current user's token directly, or use Firebase auth.
+  // Since we are inside a context, we can import auth directly.
+  const fetchNotifications = async () => {
+    try {
+      const auth = (await import('../firebase')).auth;
+      const user = auth.currentUser;
+      if (!user) return;
+      
+      const token = await user.getIdToken();
+      const API_URL = (await import('../config/api')).API_URL;
+      
+      const res = await fetch(`${API_URL}/api/notifications`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
       }
-    } else {
-      // Add some sample notifications for demo
-      generateSampleNotifications();
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
     }
-  }, []);
+  };
 
-  // Save notifications to localStorage whenever they change
+  // Poll for notifications
   useEffect(() => {
-    if (notifications.length > 0) {
-      // Remove icons before saving to localStorage to avoid serialization issues
-      const notificationsToSave = notifications.map(n => ({
-        ...n,
-        icon: undefined
-      }));
-      localStorage.setItem('notifications', JSON.stringify(notificationsToSave));
-    }
-  }, [notifications]);
+    // Wait a bit for auth to initialize before first fetch
+    setTimeout(fetchNotifications, 1000);
+    
+    const interval = setInterval(fetchNotifications, 15000); // 15 seconds
+    return () => clearInterval(interval);
+  }, []);
 
   // Update unread count whenever notifications change
   useEffect(() => {
@@ -101,58 +102,13 @@ export function NotificationProvider({ children }) {
     setUnreadCount(count);
   }, [notifications]);
 
-  const generateSampleNotifications = () => {
-    const sampleNotifications = [
-      {
-        id: Date.now() + 1,
-        title: 'New Ticket Created',
-        message: 'Ticket #12345 has been created by user@example.com',
-        type: 'ticket',
-        read: false,
-        timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-      },
-      {
-        id: Date.now() + 2,
-        title: 'System Update',
-        message: 'The ticketing system has been updated to version 2.1.0',
-        type: 'system',
-        read: false,
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-      },
-      {
-        id: Date.now() + 3,
-        title: 'New Message',
-        message: 'You have a new message from admin in ticket #67890',
-        type: 'message',
-        read: true,
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-      },
-      {
-        id: Date.now() + 4,
-        title: 'High Priority Alert',
-        message: 'Multiple urgent tickets require immediate attention',
-        type: 'alert',
-        read: false,
-        timestamp: new Date(Date.now() - 1000 * 60 * 10), // 10 minutes ago
-      }
-    ];
-    setNotifications(sampleNotifications);
-  };
-
+  // addNotification is mainly for local optimistic updates now
   const addNotification = (notification) => {
-    const newNotification = {
-      id: Date.now() + Math.random(),
-      read: false,
-      timestamp: new Date(),
-      type: notification.type || 'general',
-      ...notification,
-      // Don't store the icon directly, let the component generate it
-      icon: undefined
-    };
+    // If backend creates it, it will be fetched in next poll.
+    // For local instant feedback, we can just fetch.
+    fetchNotifications();
     
-    setNotifications(prev => [newNotification, ...prev]);
-
-    // Show toast notification for immediate feedback
+    // Show toast
     const toastOptions = {
       duration: 4000,
       position: 'top-right',
@@ -165,10 +121,6 @@ export function NotificationProvider({ children }) {
         fontSize: '14px',
         maxWidth: '320px',
       },
-      icon: notification.type === 'message' ? '💬' : 
-            notification.type === 'status' ? '📋' : 
-            notification.type === 'priority' ? '⚡' : 
-            notification.type === 'admin' ? '👤' : '📌',
     };
 
     toast(
@@ -177,25 +129,62 @@ export function NotificationProvider({ children }) {
     );
   };
 
-  const markAsRead = (notificationId) => {
+  const markAsRead = async (notificationId) => {
+    // Optimistic update
     setNotifications(prev =>
-      prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
+      prev.map(n => n.id === notificationId || n._id === notificationId ? { ...n, read: true } : n)
     );
+    
+    try {
+      const auth = (await import('../firebase')).auth;
+      const user = auth.currentUser;
+      if (!user) return;
+      
+      const token = await user.getIdToken();
+      const API_URL = (await import('../config/api')).API_URL;
+      
+      await fetch(`${API_URL}/api/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (err) {
+      console.error('Failed to mark as read', err);
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    // Optimistic update
     setNotifications(prev =>
       prev.map(n => ({ ...n, read: true }))
     );
+    
+    try {
+      const auth = (await import('../firebase')).auth;
+      const user = auth.currentUser;
+      if (!user) return;
+      
+      const token = await user.getIdToken();
+      const API_URL = (await import('../config/api')).API_URL;
+      
+      await fetch(`${API_URL}/api/notifications/read-all`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (err) {
+      console.error('Failed to mark all as read', err);
+    }
   };
 
   const clearNotifications = () => {
     setNotifications([]);
-    localStorage.removeItem('notifications');
   };
 
   const deleteNotification = (notificationId) => {
-    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    setNotifications(prev => prev.filter(n => n.id !== notificationId && n._id !== notificationId));
+  };
+  
+  const generateSampleNotifications = () => {
+    // No longer needed, just a stub
   };
 
   return (
