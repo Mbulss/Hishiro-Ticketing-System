@@ -1,7 +1,7 @@
 // API configuration for different environments
 const getApiUrl = () => {
-  if (import.meta.env.PROD) {
-    // Dynamically point to the same server it is hosted on
+  // If we are running on a real domain (like vercel), always use the same origin
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     return window.location.origin;
   }
   return import.meta.env.VITE_API_URL || 'http://localhost:3032';
@@ -9,9 +9,9 @@ const getApiUrl = () => {
 
 export const API_URL = getApiUrl();
 
-// For socket.io connections
+// For socket.io connections (if still needed)
 export const getSocketUrl = () => {
-  if (import.meta.env.PROD) {
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     return window.location.origin;
   }
   return import.meta.env.VITE_API_URL || 'http://localhost:3032';

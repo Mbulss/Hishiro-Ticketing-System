@@ -4,6 +4,7 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import 'swiper/css';
 import 'swiper/css/navigation';
 import { Autoplay } from 'swiper/modules';
+import bgImage from '../assets/background-scaled.png';
 
 const products = [
   // cardigans and jackets
@@ -167,7 +168,7 @@ export default function ProductList({ limit, heading, search }) {
       id="products"
       className="py-8 px-6 bg-white"
       style={category || location.pathname === '/all' || search ? {
-        backgroundImage: 'url(/src/assets/background-scaled.png)',
+        backgroundImage: `url(${bgImage})`,
         backgroundRepeat: 'repeat',
         backgroundSize: '700px',
       } : {}}
@@ -186,7 +187,7 @@ export default function ProductList({ limit, heading, search }) {
         <div
           className="px-4 sm:px-8 md:px-16 lg:px-32"
           style={{
-            backgroundImage: 'url(/src/assets/background-scaled.png)',
+            backgroundImage: `url(${bgImage})`,
             backgroundRepeat: 'repeat',
             backgroundSize: '800px',
           }}

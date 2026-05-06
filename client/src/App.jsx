@@ -34,6 +34,8 @@ import Settings     from './admin/pages/Settings'
 import Users        from './admin/pages/Users'
 import AdminNotifications from './admin/pages/Notifications'
 
+import bgImage from './assets/background-scaled.png'
+
 function ClientLayout() {
   const { showSearch, setShowSearch } = useSearchContext()
 
@@ -62,7 +64,7 @@ function CategoryLayout() {
       <Header onSearchClick={() => setShowSearch(true)} />
       <SearchOverlay isOpen={showSearch} onClose={() => setShowSearch(false)} />
       <div style={{
-        backgroundImage: "url(/src/assets/background-scaled.png)",
+        backgroundImage: `url(${bgImage})`,
         backgroundRepeat: "repeat",
         backgroundSize: "700px"
       }}>
@@ -84,7 +86,7 @@ function AllProductsPage() {
       <Header onSearchClick={() => setShowSearch(true)} />
       <SearchOverlay isOpen={showSearch} onClose={() => setShowSearch(false)} />
       <div style={{
-        backgroundImage: "url(/src/assets/background-scaled.png)",
+        backgroundImage: `url(${bgImage})`,
         backgroundRepeat: "repeat",
         backgroundSize: "700px"
       }}>
@@ -106,7 +108,7 @@ function SearchPage() {
       <Header onSearchClick={() => setShowSearch(true)} />
       <SearchOverlay isOpen={showSearch} onClose={() => setShowSearch(false)} />
       <div style={{
-        backgroundImage: "url(/src/assets/background-scaled.png)",
+        backgroundImage: `url(${bgImage})`,
         backgroundRepeat: "repeat",
         backgroundSize: "700px"
       }}>
